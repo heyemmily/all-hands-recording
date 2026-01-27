@@ -3,190 +3,50 @@
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "minutes",
-              "minutesInterval": 5
-            }
-          ]
-        }
+        "resource": "recording",
+        "events": ["recordingAdded"],
+        "filters": {}
       },
-      "id": "schedule-trigger",
-      "name": "Check Every 5 Minutes",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [0, 0]
-    },
-    {
-      "parameters": {
-        "resource": "message",
-        "operation": "getMany",
-        "channelId": {
-          "__rl": true,
-          "mode": "name",
-          "value": "#proj-top-goal-emmily"
-        },
-        "returnAll": false,
-        "limit": 10,
-        "filters": {
-          "oldest": "={{ $now.minus(10, 'minutes').toSeconds() }}"
-        }
-      },
-      "id": "get-channel-messages",
-      "name": "Get Channel Messages",
-      "type": "n8n-nodes-base.slack",
-      "typeVersion": 2.2,
-      "position": [220, 0],
+      "id": "grain-trigger",
+      "name": "New Grain Recording",
+      "type": "n8n-nodes-base.grainTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "webhookId": "grain-recording-webhook",
       "credentials": {
-        "slackApi": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Slack account 11"
+        "grainApi": {
+          "id": "REPLACE_WITH_GRAIN_CREDENTIAL_ID",
+          "name": "Grain account"
         }
       }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": false,
-            "leftValue": "",
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "id": "grain-com-check",
-              "leftValue": "={{ $json.text }}",
-              "rightValue": "grain.com",
-              "operator": {
-                "type": "string",
-                "operation": "contains"
-              }
-            },
-            {
-              "id": "grain-co-check",
-              "leftValue": "={{ $json.text }}",
-              "rightValue": "grain.co",
-              "operator": {
-                "type": "string",
-                "operation": "contains"
-              }
-            }
-          ],
-          "combinator": "or"
-        }
-      },
-      "id": "filter-grain-messages",
-      "name": "Filter Grain Messages",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [440, 0]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Extract Grain link from message\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const text = item.json.text || '';\n  const ts = item.json.ts || '';\n\n  let grainLink = '';\n\n  // Try to find Slack-formatted URL first <https://...>\n  const slackUrlMatch = text.match(/<(https?:\\/\\/[^|>]*grain\\.[^|>]*)(?:\\|[^>]*)?>/);\n  if (slackUrlMatch) {\n    grainLink = slackUrlMatch[1];\n  } else {\n    // Try plain URL\n    const plainUrlMatch = text.match(/(https?:\\/\\/[^\\s]*grain\\.[^\\s]*)/);\n    if (plainUrlMatch) {\n      grainLink = plainUrlMatch[1];\n    }\n  }\n\n  // Also check attachments for links\n  if (!grainLink && item.json.attachments) {\n    for (const attachment of item.json.attachments) {\n      if (attachment.original_url && attachment.original_url.includes('grain')) {\n        grainLink = attachment.original_url;\n        break;\n      }\n      if (attachment.title_link && attachment.title_link.includes('grain')) {\n        grainLink = attachment.title_link;\n        break;\n      }\n    }\n  }\n\n  if (grainLink) {\n    results.push({\n      json: {\n        grainLink: grainLink,\n        originalTs: ts,\n        messageId: ts.replace('.', '_')\n      }\n    });\n  }\n}\n\nreturn results;"
-      },
-      "id": "extract-grain-link",
-      "name": "Extract Grain Link",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [660, -100]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Check if we've already processed this message\nconst items = $input.all();\nconst results = [];\n\n// Get workflow static data (persists between executions)\nconst staticData = $getWorkflowStaticData('global');\nconst processedMessages = staticData.processedMessages || [];\n\nfor (const item of items) {\n  const messageId = item.json.messageId;\n\n  if (!processedMessages.includes(messageId)) {\n    // Mark as processed\n    processedMessages.push(messageId);\n    results.push(item);\n  }\n}\n\n// Keep only last 100 message IDs to prevent unbounded growth\nstaticData.processedMessages = processedMessages.slice(-100);\n\nreturn results;"
-      },
-      "id": "deduplicate",
-      "name": "Skip Already Posted",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [880, -100]
     },
     {
       "parameters": {
         "resource": "message",
         "operation": "post",
-        "channelId": {
+        "channel": {
           "__rl": true,
           "mode": "name",
           "value": "#general"
         },
-        "text": "=<!channel> Hi all — Here's the All Hands Recording, for those who weren't able to join!\n\n{{ $json.grainLink }}"
+        "text": "=<!channel> Hi all — Here's the All Hands Recording, for those who weren't able to join!\n\n{{ $json.recording.url }}",
+        "otherOptions": {}
       },
-      "id": "post-to-general",
+      "id": "post-to-slack",
       "name": "Post to #general",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
-      "position": [1100, -100],
+      "position": [220, 0],
       "credentials": {
         "slackApi": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
-          "name": "Slack account 11"
+          "id": "REPLACE_WITH_SLACK_CREDENTIAL_ID",
+          "name": "Slack account"
         }
       }
-    },
-    {
-      "parameters": {},
-      "id": "no-grain-messages",
-      "name": "No Grain Messages",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [660, 100]
     }
   ],
   "connections": {
-    "Check Every 5 Minutes": {
-      "main": [
-        [
-          {
-            "node": "Get Channel Messages",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Channel Messages": {
-      "main": [
-        [
-          {
-            "node": "Filter Grain Messages",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Filter Grain Messages": {
-      "main": [
-        [
-          {
-            "node": "Extract Grain Link",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "No Grain Messages",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Extract Grain Link": {
-      "main": [
-        [
-          {
-            "node": "Skip Already Posted",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Skip Already Posted": {
+    "New Grain Recording": {
       "main": [
         [
           {
