@@ -1,0 +1,211 @@
+{
+  "name": "All Hands Recording Custom Repost",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 12-13 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Monday 12-1pm ET Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "notes": "Runs every 5 minutes on Mondays between 12:00-13:59 ET. Adjust the cron if your n8n instance timezone differs from US/Eastern."
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getMany",
+        "channelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_CHANNEL_ID"
+        },
+        "returnAll": false,
+        "limit": 10,
+        "filters": {
+          "oldest": "={{ $now.minus(2, 'hours').toSeconds() }}"
+        }
+      },
+      "id": "get-channel-messages",
+      "name": "Get Messages from Private Channel",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [220, 0],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      },
+      "notes": "Reads messages from #proj-top-goal-emmily. Use channel ID since private channels may not appear by name."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "grain-check",
+              "leftValue": "={{ $json.text }}",
+              "rightValue": "grain",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "bot-check",
+              "leftValue": "={{ $json.bot_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "filter-grain-messages",
+      "name": "Filter Grain Posts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 0],
+      "notes": "Checks if message is from Grain (bot message containing 'grain' text or links)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Grain recording link from message\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const text = item.json.text || '';\n  const ts = item.json.ts || '';\n  \n  let grainLink = '';\n\n  // Try Slack-formatted URL: <https://grain.com/...|optional text>\n  const slackUrlMatch = text.match(/<(https?:\\/\\/[^|>]*grain\\.[^|>]*)(?:\\|[^>]*)?>/);\n  if (slackUrlMatch) {\n    grainLink = slackUrlMatch[1];\n  }\n\n  // Try plain URL\n  if (!grainLink) {\n    const plainUrlMatch = text.match(/(https?:\\/\\/[^\\s]*grain\\.[^\\s]*)/);\n    if (plainUrlMatch) {\n      grainLink = plainUrlMatch[1];\n    }\n  }\n\n  // Check attachments\n  if (!grainLink && item.json.attachments) {\n    for (const att of item.json.attachments) {\n      const url = att.original_url || att.title_link || att.from_url || '';\n      if (url.includes('grain')) {\n        grainLink = url;\n        break;\n      }\n    }\n  }\n\n  if (grainLink) {\n    results.push({\n      json: {\n        grainLink,\n        messageId: ts.replace('.', '_')\n      }\n    });\n  }\n}\n\nreturn results.length > 0 ? results : [];"
+      },
+      "id": "extract-link",
+      "name": "Extract Grain Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prevent duplicate posts using workflow static data\nconst items = $input.all();\nconst results = [];\n\nconst staticData = $getWorkflowStaticData('global');\nconst posted = staticData.postedMessages || [];\n\nfor (const item of items) {\n  const id = item.json.messageId;\n  if (!posted.includes(id)) {\n    posted.push(id);\n    results.push(item);\n  }\n}\n\n// Keep only last 50 IDs\nstaticData.postedMessages = posted.slice(-50);\n\nreturn results;"
+      },
+      "id": "deduplicate",
+      "name": "Skip Already Posted",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, -100]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_GENERAL_CHANNEL_ID"
+        },
+        "text": "=<!channel> Hi all \u2014 Here's the All Hands Recording, for those who weren't able to join!\n\n{{ $json.grainLink }}"
+      },
+      "id": "post-to-general",
+      "name": "Post to #general",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1100, -100],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "no-grain-messages",
+      "name": "No Grain Messages Found",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [660, 100]
+    }
+  ],
+  "connections": {
+    "Monday 12-1pm ET Check": {
+      "main": [
+        [
+          {
+            "node": "Get Messages from Private Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Messages from Private Channel": {
+      "main": [
+        [
+          {
+            "node": "Filter Grain Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Grain Posts": {
+      "main": [
+        [
+          {
+            "node": "Extract Grain Link",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Grain Messages Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Grain Link": {
+      "main": [
+        [
+          {
+            "node": "Skip Already Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Already Posted": {
+      "main": [
+        [
+          {
+            "node": "Post to #general",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

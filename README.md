@@ -1,85 +1,107 @@
 # All Hands Recording Auto-Poster
 
-Automatically posts Grain meeting recordings to Slack with a custom message when a recording is ready.
+Automatically share Grain meeting recordings to Slack when a recording is ready.
 
 ## How It Works
 
-```
-Grain (recording ready) → n8n → #general with custom message
-```
+Grain has a **native Slack integration** that automatically posts recordings to a Slack channel when they're ready. No n8n or third-party tools needed for the basic flow.
 
-Just 2 nodes. No polling. No intermediate channels.
+```
+Meeting ends → Grain processes recording → Grain posts to Slack channel
+```
 
 ## Setup Guide
 
-### Step 1: Get Your Grain API Key
+### Step 1: Connect Grain to Slack
 
-1. Go to **Grain** → **Settings** → **Integrations** → **API**
-2. Click **Generate API Key**
-3. Copy the key (you'll need it for n8n)
+1. Open **Grain** (grain.com) and log in
+2. Go to **Settings** → **Integrations** → **Slack**
+3. Click the green **"Connect Slack"** button
+4. Authorize Grain to access your Slack workspace
+5. Select the correct workspace if you have multiple
 
-### Step 2: Add Grain Credentials in n8n
+> This only needs to be done once for your entire workspace.
 
-1. Go to your n8n instance: `archive-team.app.n8n.cloud`
-2. Click **Settings** (gear icon) → **Credentials**
-3. Click **Add Credential** → Search for **Grain**
-4. Paste your API key
-5. Save it
+### Step 2: Set Up the Automation
 
-### Step 3: Import the Workflow
+1. In Grain, go to **Automations** → **Slack**
+2. Click **"Get Started"**
+3. You'll see options to configure:
 
-1. Create a new workflow in n8n
-2. Click **⋮ menu** (top right) → **Import from File**
-3. Upload `workflow.json` from this repo
+**Choose which meetings to share:**
+- Filter by **Owner** (e.g., only your meetings)
+- Filter by **People/Participants** (e.g., only meetings with the whole team)
+- Filter by **Tags** (e.g., tag your All Hands as "All Hands")
 
-### Step 4: Configure the Nodes
+**Choose the destination channel:**
+- For testing: Select `#proj-top-goal-emmily` (your private test channel)
+- For production: You'll switch this to `#general` later
 
-**Grain Trigger Node:**
-1. Click on "New Grain Recording" node
-2. Select your Grain credential
-3. (Optional) Add filters if you only want specific meetings
+4. Click **"Add Automation"**
 
-**Slack Node:**
-1. Click on "Post to #general" node
-2. Select your Slack credential
-3. Change channel if needed (use channel ID for private channels)
+### Step 3: Make Sure Meetings Are Shared with Workspace
 
-### Step 5: Activate
+**Important:** Grain's Slack automation only works for meetings that are **shared with the workspace**.
 
-Toggle the workflow to **Active** (top right).
+1. Go to Grain **Settings** → **Sharing**
+2. Ensure your recordings are set to share with your workspace
+3. If not, enable workspace sharing for your All Hands recordings
 
-Done! When Grain finishes processing a recording, it will automatically post to your Slack channel.
+### Step 4: Test It
+
+To verify the automation works:
+
+1. Wait for the next Monday All Hands meeting (11:15 AM ET)
+2. After the meeting ends and Grain finishes processing (~30-60 min), check `#proj-top-goal-emmily`
+3. You should see Grain's automated post with the recording link and summary
+
+**Alternative test method:**
+- Re-share an existing recording in Grain to trigger the automation
+- Or record a quick test meeting and let Grain process it
+
+### Step 5: Switch to #general (After Testing)
+
+Once you've confirmed it works:
+
+1. Go back to Grain → **Automations** → **Slack**
+2. Edit your automation
+3. Change the channel from `#proj-top-goal-emmily` to `#general`
+4. Save
+
+That's it. Fully automated, every Monday after All Hands.
 
 ---
 
-## Custom Message Format
+## What Grain Posts
 
-The default message is:
+Grain's automated Slack message includes:
+- AI-generated meeting summary
+- Key points and action items
+- Link to the full recording
+- Link to the transcript
+
+> Note: This uses Grain's built-in message format. You cannot customize
+> the exact wording (e.g., no custom "Hi @channel" message). If you need
+> a custom message format, see the "Custom Message Format" section below.
+
+---
+
+## Custom Message Format (Optional, Advanced)
+
+If you want a custom message like:
 
 ```
 @channel Hi all — Here's the All Hands Recording, for those who weren't able to join!
-
-[Grain recording link]
+[link]
 ```
 
-To customize, edit the "Post to #general" node and change the **Message Text** field.
+You'll need to add an n8n workflow on top. See `workflow-custom-format.json` for a
+workflow that:
 
-### Available Variables from Grain
+1. Grain posts to `#proj-top-goal-emmily` (automatically)
+2. n8n watches that channel and reposts to `#general` with your custom message
 
-You can use these in your message:
-- `{{ $json.recording.url }}` - Link to the recording
-- `{{ $json.recording.title }}` - Meeting title
-- `{{ $json.recording.date }}` - Meeting date
-- `{{ $json.recording.duration }}` - Recording length
-
----
-
-## Filtering (Optional)
-
-If you only want to post certain recordings (like All Hands meetings), edit the Grain Trigger node and add filters by:
-- Meeting title contains "All Hands"
-- Specific participants
-- Tags
+This is the "Approach A" fallback if Grain's native format doesn't work for you.
 
 ---
 
@@ -87,17 +109,10 @@ If you only want to post certain recordings (like All Hands meetings), edit the 
 
 | Issue | Fix |
 |-------|-----|
-| Workflow not triggering | Make sure workflow is **Active** (green toggle) |
-| No Grain credential option | Add Grain credential in Settings → Credentials first |
-| `channel_not_found` | Bot not in channel, or use channel ID instead of name |
-| Wrong recording URL | Check Grain's webhook payload structure - may need to adjust `$json.recording.url` path |
-
-## Testing
-
-To test without waiting for a real meeting:
-1. Make the workflow active
-2. In Grain, re-process an old recording or upload a test video
-3. Check n8n execution log to see if it triggered
+| Automation not firing | Ensure the recording is shared with workspace |
+| Channel not in dropdown | Grain's Slack app must be invited to the channel |
+| Only some meetings post | Check your filters (owner, participants, tags) |
+| Recording takes too long | Grain processing time varies; usually 15-60 min |
 
 ---
 
@@ -105,6 +120,13 @@ To test without waiting for a real meeting:
 
 | File | Purpose |
 |------|---------|
-| `workflow.json` | Import this into n8n |
-| `README.md` | This guide |
-| `QUICK_START.md` | Condensed setup steps |
+| `README.md` | This guide (Grain native Slack setup) |
+| `workflow-custom-format.json` | Optional n8n workflow for custom message formatting |
+
+---
+
+## References
+
+- [Set up Slack integration with Grain](https://support.grain.com/en/articles/9248458-set-up-slack-integration-with-grain)
+- [Slack Automations for Meeting Summaries](https://support.grain.com/en/articles/8055236-how-to-setup-slack-automations-to-receive-automated-meeting-summaries)
+- [Grain + Slack Integration Page](https://grain.com/integrations/slack)
