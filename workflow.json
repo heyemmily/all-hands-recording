@@ -3,66 +3,104 @@
   "nodes": [
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "grain-recording",
-        "responseMode": "responseNode",
-        "options": {}
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 12,
+              "triggerAtMinute": 30,
+              "triggerAtDay": [1]
+            }
+          ]
+        }
       },
-      "id": "webhook-trigger",
-      "name": "Grain Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
+      "id": "schedule-trigger",
+      "name": "Monday 12:30pm ET",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
       "position": [0, 0],
-      "webhookId": "grain-recording"
+      "notes": "Runs every Monday at 12:30pm. Adjust time if needed based on when your All Hands meeting ends."
     },
     {
       "parameters": {
-        "respondWith": "allIncomingItems",
+        "method": "POST",
+        "url": "https://api.grain.com/_/public-api/v2/recordings",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Public-Api-Version",
+              "value": "2025-10-31"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"filter\": {\n    \"title_search\": \"All Hands\"\n  }\n}",
         "options": {}
       },
-      "id": "webhook-response",
-      "name": "Respond OK",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [220, 100]
+      "id": "get-recordings",
+      "name": "Get Recordings from Grain",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Grain API Token"
+        }
+      },
+      "notes": "Calls Grain API to list recordings. Filters for 'All Hands' in title."
     },
     {
       "parameters": {
-        "jsCode": "// Extract recording URL from Grain webhook payload\n// Grain may send data in different formats - this handles common ones\nconst item = $input.first();\nconst body = item.json.body || item.json;\n\nlet recordingUrl = '';\nlet recordingTitle = '';\n\n// Check common payload structures\n// Direct URL field\nif (body.url) recordingUrl = body.url;\nif (body.recording_url) recordingUrl = body.recording_url;\nif (body.recordingUrl) recordingUrl = body.recordingUrl;\nif (body.link) recordingUrl = body.link;\n\n// Nested recording object\nif (body.recording) {\n  recordingUrl = body.recording.url || body.recording.share_url || body.recording.link || recordingUrl;\n  recordingTitle = body.recording.title || '';\n}\n\n// Data wrapper\nif (body.data) {\n  recordingUrl = body.data.url || body.data.recording_url || body.data.share_url || recordingUrl;\n  recordingTitle = body.data.title || body.data.recording_title || recordingTitle;\n}\n\n// Fallback: search entire payload for grain URL\nif (!recordingUrl) {\n  const payloadStr = JSON.stringify(body);\n  const urlMatch = payloadStr.match(/(https?:\\/\\/[^\"\\s]*grain\\.[^\"\\s]*)/);\n  if (urlMatch) recordingUrl = urlMatch[1];\n}\n\nreturn [{\n  json: {\n    recordingUrl,\n    recordingTitle,\n    rawPayload: body\n  }\n}];"
+        "jsCode": "// Get the most recent All Hands recording\nconst recordings = $input.first().json.recordings || [];\n\nif (recordings.length === 0) {\n  // No recordings found\n  return [{ json: { error: 'No recordings found', hasRecording: false } }];\n}\n\n// Sort by start_datetime descending (most recent first)\nrecordings.sort((a, b) => {\n  return new Date(b.start_datetime) - new Date(a.start_datetime);\n});\n\n// Get the most recent one\nconst latest = recordings[0];\n\n// Check if this recording is from today (or within last 24 hours)\nconst recordingDate = new Date(latest.start_datetime);\nconst now = new Date();\nconst hoursSinceRecording = (now - recordingDate) / (1000 * 60 * 60);\n\nreturn [{\n  json: {\n    hasRecording: true,\n    recordingUrl: latest.url,\n    recordingTitle: latest.title,\n    recordingDate: latest.start_datetime,\n    recordingId: latest.id,\n    hoursSinceRecording: Math.round(hoursSinceRecording),\n    isRecent: hoursSinceRecording < 24\n  }\n}];"
       },
-      "id": "extract-url",
-      "name": "Extract Recording URL",
+      "id": "extract-latest",
+      "name": "Get Latest Recording",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, -100]
+      "position": [440, 0],
+      "notes": "Extracts the most recent All Hands recording URL"
     },
     {
       "parameters": {
         "conditions": {
           "options": {
-            "caseSensitive": false,
+            "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "loose"
+            "typeValidation": "strict"
           },
           "conditions": [
             {
-              "id": "has-url",
-              "leftValue": "={{ $json.recordingUrl }}",
-              "rightValue": "",
+              "id": "has-recording",
+              "leftValue": "={{ $json.hasRecording }}",
+              "rightValue": true,
               "operator": {
-                "type": "string",
-                "operation": "isNotEmpty"
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "is-recent",
+              "leftValue": "={{ $json.isRecent }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
               }
             }
           ],
           "combinator": "and"
         }
       },
-      "id": "check-url",
-      "name": "Has Recording URL?",
+      "id": "check-recording",
+      "name": "Has Recent Recording?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [440, -100]
+      "position": [660, 0],
+      "notes": "Only posts if there's a recording from the last 24 hours"
     },
     {
       "parameters": {
@@ -73,58 +111,65 @@
           "mode": "id",
           "value": "REPLACE_WITH_CHANNEL_ID"
         },
-        "text": "=<!channel> Hi all \u2014 Here's the All Hands Recording, for those who weren't able to join!\n\n{{ $json.recordingUrl }}"
+        "text": "=<!channel> Hi all — Here's the All Hands Recording, for those who weren't able to join!\n\n{{ $json.recordingUrl }}"
       },
       "id": "post-to-slack",
       "name": "Post to Slack",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
-      "position": [660, -200],
+      "position": [880, -100],
       "credentials": {
         "slackApi": {
-          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "id": "REPLACE_WITH_SLACK_CREDENTIAL_ID",
           "name": "Slack account"
         }
       }
     },
     {
       "parameters": {},
-      "id": "no-url",
-      "name": "No URL Found",
+      "id": "no-recording",
+      "name": "No Recent Recording",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [660, 0]
+      "position": [880, 100],
+      "notes": "No recording found or recording is older than 24 hours"
     }
   ],
   "connections": {
-    "Grain Webhook": {
+    "Monday 12:30pm ET": {
       "main": [
         [
           {
-            "node": "Extract Recording URL",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Respond OK",
+            "node": "Get Recordings from Grain",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Extract Recording URL": {
+    "Get Recordings from Grain": {
       "main": [
         [
           {
-            "node": "Has Recording URL?",
+            "node": "Get Latest Recording",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Has Recording URL?": {
+    "Get Latest Recording": {
+      "main": [
+        [
+          {
+            "node": "Has Recent Recording?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Recent Recording?": {
       "main": [
         [
           {
@@ -135,7 +180,7 @@
         ],
         [
           {
-            "node": "No URL Found",
+            "node": "No Recent Recording",
             "type": "main",
             "index": 0
           }
@@ -144,7 +189,8 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
   },
   "meta": {
     "templateCredsSetupCompleted": true

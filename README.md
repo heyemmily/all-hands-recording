@@ -1,98 +1,99 @@
 # All Hands Recording Auto-Poster
 
-Grain sends a webhook to n8n when a recording is ready. n8n posts a custom message to Slack.
+Every Monday after your All Hands meeting, n8n automatically fetches the recording from Grain and posts it to Slack with your custom message.
 
 ```
-Grain (recording ready) → n8n Webhook → Slack custom message
+Monday 12:30pm ET → n8n calls Grain API → Gets latest "All Hands" recording → Posts to Slack
 ```
+
+Fully automated. No manual steps after setup.
+
+---
 
 ## Setup
 
-### Step 1: Import Workflow into n8n
+### Step 1: Create Grain API Credential in n8n
 
-1. Go to `archive-team.app.n8n.cloud`
-2. Create new workflow
-3. **⋮ menu** → **Import from File** → upload `workflow.json`
-4. Click the **"Post to Slack"** node → select your Slack credential
-5. Change the channel ID to your **test channel** (switch to #general later)
-6. Click **Save** then toggle workflow to **Active**
-
-### Step 2: Copy the n8n Webhook URL
-
-After activating the workflow:
-
-1. Click the **"Grain Webhook"** node
-2. You'll see two URLs:
-   - **Test URL** — use this while testing (only works when you click "Listen for Test Event")
-   - **Production URL** — use this after testing (works when workflow is active)
-3. Copy the **Production URL**. It looks like:
-   ```
-   https://archive-team.app.n8n.cloud/webhook/grain-recording
-   ```
-
-### Step 3: Configure Grain Webhook
-
-1. Go to **Grain** → **Settings** → **Webhooks/API**
-2. Add a new webhook
-3. Paste the n8n webhook URL from Step 2
-4. Set the event to trigger on: **Recording Added** (or equivalent)
+1. Go to **n8n** → **Settings** → **Credentials**
+2. Click **Add Credential**
+3. Search for **Header Auth**
+4. Configure it:
+   - **Name**: `Grain API Token`
+   - **Header Name**: `Authorization`
+   - **Header Value**: `Bearer grain_pat_Ob1NJO3H_YOUR_FULL_TOKEN_HERE`
 5. Save
+
+### Step 2: Import the Workflow
+
+1. Download `workflow.json` from this repo
+2. In n8n, create a new workflow
+3. Click **⋮ menu** → **Import from File** → upload `workflow.json`
+
+### Step 3: Configure the Nodes
+
+**"Get Recordings from Grain" node:**
+1. Click on it
+2. Under Credential, select your **Grain API Token**
+
+**"Post to Slack" node:**
+1. Click on it
+2. Select your **Slack credential**
+3. Change `REPLACE_WITH_CHANNEL_ID` to your test channel ID (e.g., `C0XXXXXXX`)
 
 ### Step 4: Test It
 
-**Option A: Use n8n's test mode**
+1. Click **Test Workflow** to run it manually
+2. Check if it finds your recordings and posts to the test channel
+3. If it works, change the channel to `#general`
 
-1. In n8n, click the **"Grain Webhook"** node
-2. Click **"Listen for Test Event"**
-3. Send a test POST request (from browser, Postman, or terminal):
-   ```bash
-   curl -X POST https://archive-team.app.n8n.cloud/webhook-test/grain-recording \
-     -H "Content-Type: application/json" \
-     -d '{"recording": {"url": "https://grain.com/share/test-recording-123", "title": "All Hands Test"}}'
-   ```
-4. Check your test Slack channel — you should see the custom message
+### Step 5: Activate
 
-**Option B: Trigger from Grain**
+Toggle the workflow to **Active**. It will now run automatically every Monday at 12:30pm ET.
 
-1. Make the workflow active (not in test mode)
-2. In Grain, trigger a recording event (re-process a recording or wait for the next meeting)
-3. Check your test channel
+---
 
-### Step 5: Switch to #general
+## How It Works
 
-Once testing works:
-
-1. Edit the **"Post to Slack"** node
-2. Change the channel ID to your `#general` channel ID
-3. Save
+| Node | What it does |
+|------|-------------|
+| Monday 12:30pm ET | Triggers every Monday at 12:30pm Eastern |
+| Get Recordings from Grain | Calls Grain API, filters for "All Hands" in title |
+| Get Latest Recording | Finds the most recent recording from the last 24 hours |
+| Has Recent Recording? | Only continues if there's a recording from today |
+| Post to Slack | Posts your custom message with the recording URL |
 
 ---
 
 ## Custom Message
 
-The message posted to Slack:
-
+Default message:
 ```
 @channel Hi all — Here's the All Hands Recording, for those who weren't able to join!
 
 https://grain.com/share/recording/...
 ```
 
-To change the message, edit the **"Post to Slack"** node text field.
-
-Use `<!channel>` for @channel mention (not `@channel`).
+To change it, edit the **"Post to Slack"** node's text field.
 
 ---
 
-## Workflow Nodes
+## Configuration Options
 
-| Node | Purpose |
-|------|---------|
-| Grain Webhook | Receives POST from Grain when recording is ready |
-| Respond OK | Sends 200 response back to Grain |
-| Extract Recording URL | Parses the Grain payload to find the recording link |
-| Has Recording URL? | Only continues if a valid URL was found |
-| Post to Slack | Posts your custom message to the channel |
+### Change the schedule
+Edit the **"Monday 12:30pm ET"** node to adjust:
+- Time (if your meeting ends earlier/later)
+- Day (if All Hands is on a different day)
+
+### Change the search filter
+Edit the **"Get Recordings from Grain"** node's JSON body:
+```json
+{
+  "filter": {
+    "title_search": "All Hands"
+  }
+}
+```
+Change `"All Hands"` to match your meeting title.
 
 ---
 
@@ -100,22 +101,25 @@ Use `<!channel>` for @channel mention (not `@channel`).
 
 | Issue | Fix |
 |-------|-----|
-| Webhook not receiving | Make sure workflow is **Active** (green toggle) |
-| Wrong URL in Slack post | Check n8n execution log → click "Extract Recording URL" to see raw payload from Grain. Adjust the Code node if needed. |
-| `channel_not_found` | Use channel ID, not name. Bot must be in the channel. |
-| `<!channel>` not working | Ensure `chat:write` scope on your Slack app |
+| 401 Unauthorized | Check your Grain API token is correct and includes `Bearer ` prefix |
+| No recordings found | Check if the title filter matches your meeting name |
+| Wrong recording | Adjust the title_search filter to be more specific |
+| Doesn't run on Monday | Make sure workflow is Active and timezone is set correctly |
+| Channel not found | Use channel ID (starts with C), not channel name |
 
 ---
 
-## Important: First-Time Grain Payload
+## API Reference
 
-The first time Grain sends a webhook, check the **n8n execution log** to see the exact payload structure. You may need to adjust the "Extract Recording URL" code node to match Grain's actual field names. The current code handles multiple common formats as a fallback.
+**Grain List Recordings:**
+```
+POST https://api.grain.com/_/public-api/v2/recordings
+Headers:
+  Authorization: Bearer <your_token>
+  Public-Api-Version: 2025-10-31
+  Content-Type: application/json
+Body:
+  {"filter": {"title_search": "All Hands"}}
+```
 
----
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `workflow.json` | Import into n8n |
-| `README.md` | This guide |
+Response includes `recordings` array with `url` field for each recording.
