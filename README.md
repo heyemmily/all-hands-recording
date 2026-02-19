@@ -1,107 +1,98 @@
 # All Hands Recording Auto-Poster
 
-Automatically share Grain meeting recordings to Slack when a recording is ready.
-
-## How It Works
-
-Grain has a **native Slack integration** that automatically posts recordings to a Slack channel when they're ready. No n8n or third-party tools needed for the basic flow.
+Grain sends a webhook to n8n when a recording is ready. n8n posts a custom message to Slack.
 
 ```
-Meeting ends → Grain processes recording → Grain posts to Slack channel
+Grain (recording ready) → n8n Webhook → Slack custom message
 ```
 
-## Setup Guide
+## Setup
 
-### Step 1: Connect Grain to Slack
+### Step 1: Import Workflow into n8n
 
-1. Open **Grain** (grain.com) and log in
-2. Go to **Settings** → **Integrations** → **Slack**
-3. Click the green **"Connect Slack"** button
-4. Authorize Grain to access your Slack workspace
-5. Select the correct workspace if you have multiple
+1. Go to `archive-team.app.n8n.cloud`
+2. Create new workflow
+3. **⋮ menu** → **Import from File** → upload `workflow.json`
+4. Click the **"Post to Slack"** node → select your Slack credential
+5. Change the channel ID to your **test channel** (switch to #general later)
+6. Click **Save** then toggle workflow to **Active**
 
-> This only needs to be done once for your entire workspace.
+### Step 2: Copy the n8n Webhook URL
 
-### Step 2: Set Up the Automation
+After activating the workflow:
 
-1. In Grain, go to **Automations** → **Slack**
-2. Click **"Get Started"**
-3. You'll see options to configure:
+1. Click the **"Grain Webhook"** node
+2. You'll see two URLs:
+   - **Test URL** — use this while testing (only works when you click "Listen for Test Event")
+   - **Production URL** — use this after testing (works when workflow is active)
+3. Copy the **Production URL**. It looks like:
+   ```
+   https://archive-team.app.n8n.cloud/webhook/grain-recording
+   ```
 
-**Choose which meetings to share:**
-- Filter by **Owner** (e.g., only your meetings)
-- Filter by **People/Participants** (e.g., only meetings with the whole team)
-- Filter by **Tags** (e.g., tag your All Hands as "All Hands")
+### Step 3: Configure Grain Webhook
 
-**Choose the destination channel:**
-- For testing: Select `#proj-top-goal-emmily` (your private test channel)
-- For production: You'll switch this to `#general` later
-
-4. Click **"Add Automation"**
-
-### Step 3: Make Sure Meetings Are Shared with Workspace
-
-**Important:** Grain's Slack automation only works for meetings that are **shared with the workspace**.
-
-1. Go to Grain **Settings** → **Sharing**
-2. Ensure your recordings are set to share with your workspace
-3. If not, enable workspace sharing for your All Hands recordings
+1. Go to **Grain** → **Settings** → **Webhooks/API**
+2. Add a new webhook
+3. Paste the n8n webhook URL from Step 2
+4. Set the event to trigger on: **Recording Added** (or equivalent)
+5. Save
 
 ### Step 4: Test It
 
-To verify the automation works:
+**Option A: Use n8n's test mode**
 
-1. Wait for the next Monday All Hands meeting (11:15 AM ET)
-2. After the meeting ends and Grain finishes processing (~30-60 min), check `#proj-top-goal-emmily`
-3. You should see Grain's automated post with the recording link and summary
+1. In n8n, click the **"Grain Webhook"** node
+2. Click **"Listen for Test Event"**
+3. Send a test POST request (from browser, Postman, or terminal):
+   ```bash
+   curl -X POST https://archive-team.app.n8n.cloud/webhook-test/grain-recording \
+     -H "Content-Type: application/json" \
+     -d '{"recording": {"url": "https://grain.com/share/test-recording-123", "title": "All Hands Test"}}'
+   ```
+4. Check your test Slack channel — you should see the custom message
 
-**Alternative test method:**
-- Re-share an existing recording in Grain to trigger the automation
-- Or record a quick test meeting and let Grain process it
+**Option B: Trigger from Grain**
 
-### Step 5: Switch to #general (After Testing)
+1. Make the workflow active (not in test mode)
+2. In Grain, trigger a recording event (re-process a recording or wait for the next meeting)
+3. Check your test channel
 
-Once you've confirmed it works:
+### Step 5: Switch to #general
 
-1. Go back to Grain → **Automations** → **Slack**
-2. Edit your automation
-3. Change the channel from `#proj-top-goal-emmily` to `#general`
-4. Save
+Once testing works:
 
-That's it. Fully automated, every Monday after All Hands.
-
----
-
-## What Grain Posts
-
-Grain's automated Slack message includes:
-- AI-generated meeting summary
-- Key points and action items
-- Link to the full recording
-- Link to the transcript
-
-> Note: This uses Grain's built-in message format. You cannot customize
-> the exact wording (e.g., no custom "Hi @channel" message). If you need
-> a custom message format, see the "Custom Message Format" section below.
+1. Edit the **"Post to Slack"** node
+2. Change the channel ID to your `#general` channel ID
+3. Save
 
 ---
 
-## Custom Message Format (Optional, Advanced)
+## Custom Message
 
-If you want a custom message like:
+The message posted to Slack:
 
 ```
 @channel Hi all — Here's the All Hands Recording, for those who weren't able to join!
-[link]
+
+https://grain.com/share/recording/...
 ```
 
-You'll need to add an n8n workflow on top. See `workflow-custom-format.json` for a
-workflow that:
+To change the message, edit the **"Post to Slack"** node text field.
 
-1. Grain posts to `#proj-top-goal-emmily` (automatically)
-2. n8n watches that channel and reposts to `#general` with your custom message
+Use `<!channel>` for @channel mention (not `@channel`).
 
-This is the "Approach A" fallback if Grain's native format doesn't work for you.
+---
+
+## Workflow Nodes
+
+| Node | Purpose |
+|------|---------|
+| Grain Webhook | Receives POST from Grain when recording is ready |
+| Respond OK | Sends 200 response back to Grain |
+| Extract Recording URL | Parses the Grain payload to find the recording link |
+| Has Recording URL? | Only continues if a valid URL was found |
+| Post to Slack | Posts your custom message to the channel |
 
 ---
 
@@ -109,10 +100,16 @@ This is the "Approach A" fallback if Grain's native format doesn't work for you.
 
 | Issue | Fix |
 |-------|-----|
-| Automation not firing | Ensure the recording is shared with workspace |
-| Channel not in dropdown | Grain's Slack app must be invited to the channel |
-| Only some meetings post | Check your filters (owner, participants, tags) |
-| Recording takes too long | Grain processing time varies; usually 15-60 min |
+| Webhook not receiving | Make sure workflow is **Active** (green toggle) |
+| Wrong URL in Slack post | Check n8n execution log → click "Extract Recording URL" to see raw payload from Grain. Adjust the Code node if needed. |
+| `channel_not_found` | Use channel ID, not name. Bot must be in the channel. |
+| `<!channel>` not working | Ensure `chat:write` scope on your Slack app |
+
+---
+
+## Important: First-Time Grain Payload
+
+The first time Grain sends a webhook, check the **n8n execution log** to see the exact payload structure. You may need to adjust the "Extract Recording URL" code node to match Grain's actual field names. The current code handles multiple common formats as a fallback.
 
 ---
 
@@ -120,13 +117,5 @@ This is the "Approach A" fallback if Grain's native format doesn't work for you.
 
 | File | Purpose |
 |------|---------|
-| `README.md` | This guide (Grain native Slack setup) |
-| `workflow-custom-format.json` | Optional n8n workflow for custom message formatting |
-
----
-
-## References
-
-- [Set up Slack integration with Grain](https://support.grain.com/en/articles/9248458-set-up-slack-integration-with-grain)
-- [Slack Automations for Meeting Summaries](https://support.grain.com/en/articles/8055236-how-to-setup-slack-automations-to-receive-automated-meeting-summaries)
-- [Grain + Slack Integration Page](https://grain.com/integrations/slack)
+| `workflow.json` | Import into n8n |
+| `README.md` | This guide |

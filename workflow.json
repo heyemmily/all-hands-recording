@@ -1,0 +1,152 @@
+{
+  "name": "All Hands Recording Auto-Poster",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "grain-recording",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Grain Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "grain-recording"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [220, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract recording URL from Grain webhook payload\n// Grain may send data in different formats - this handles common ones\nconst item = $input.first();\nconst body = item.json.body || item.json;\n\nlet recordingUrl = '';\nlet recordingTitle = '';\n\n// Check common payload structures\n// Direct URL field\nif (body.url) recordingUrl = body.url;\nif (body.recording_url) recordingUrl = body.recording_url;\nif (body.recordingUrl) recordingUrl = body.recordingUrl;\nif (body.link) recordingUrl = body.link;\n\n// Nested recording object\nif (body.recording) {\n  recordingUrl = body.recording.url || body.recording.share_url || body.recording.link || recordingUrl;\n  recordingTitle = body.recording.title || '';\n}\n\n// Data wrapper\nif (body.data) {\n  recordingUrl = body.data.url || body.data.recording_url || body.data.share_url || recordingUrl;\n  recordingTitle = body.data.title || body.data.recording_title || recordingTitle;\n}\n\n// Fallback: search entire payload for grain URL\nif (!recordingUrl) {\n  const payloadStr = JSON.stringify(body);\n  const urlMatch = payloadStr.match(/(https?:\\/\\/[^\"\\s]*grain\\.[^\"\\s]*)/);\n  if (urlMatch) recordingUrl = urlMatch[1];\n}\n\nreturn [{\n  json: {\n    recordingUrl,\n    recordingTitle,\n    rawPayload: body\n  }\n}];"
+      },
+      "id": "extract-url",
+      "name": "Extract Recording URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, -100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-url",
+              "leftValue": "={{ $json.recordingUrl }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-url",
+      "name": "Has Recording URL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, -100]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_CHANNEL_ID"
+        },
+        "text": "=<!channel> Hi all \u2014 Here's the All Hands Recording, for those who weren't able to join!\n\n{{ $json.recordingUrl }}"
+      },
+      "id": "post-to-slack",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [660, -200],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "no-url",
+      "name": "No URL Found",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Grain Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Recording URL",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Recording URL": {
+      "main": [
+        [
+          {
+            "node": "Has Recording URL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Recording URL?": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No URL Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
