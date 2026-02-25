@@ -55,7 +55,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Get the most recent All Hands recording\nconst recordings = $input.first().json.recordings || [];\n\nif (recordings.length === 0) {\n  // No recordings found\n  return [{ json: { error: 'No recordings found', hasRecording: false } }];\n}\n\n// Sort by start_datetime descending (most recent first)\nrecordings.sort((a, b) => {\n  return new Date(b.start_datetime) - new Date(a.start_datetime);\n});\n\n// Get the most recent one\nconst latest = recordings[0];\n\n// Check if this recording is from today (or within last 24 hours)\nconst recordingDate = new Date(latest.start_datetime);\nconst now = new Date();\nconst hoursSinceRecording = (now - recordingDate) / (1000 * 60 * 60);\n\nreturn [{\n  json: {\n    hasRecording: true,\n    recordingUrl: latest.url,\n    recordingTitle: latest.title,\n    recordingDate: latest.start_datetime,\n    recordingId: latest.id,\n    hoursSinceRecording: Math.round(hoursSinceRecording),\n    isRecent: hoursSinceRecording < 24\n  }\n}];"
+        "jsCode": "// Get the most recent All Hands recording\nconst recordings = $input.first().json.recordings || [];\n\nif (recordings.length === 0) {\n  // No recordings found\n  return [{ json: { error: 'No recordings found', hasRecording: false } }];\n}\n\n// Sort by start_datetime descending (most recent first)\nrecordings.sort((a, b) => {\n  return new Date(b.start_datetime) - new Date(a.start_datetime);\n});\n\n// Get the most recent one\nconst latest = recordings[0];\n\n// Check if this recording is from today (or within last 24 hours)\nconst recordingDate = new Date(latest.start_datetime);\nconst now = new Date();\nconst hoursSinceRecording = (now - recordingDate) / (1000 * 60 * 60);\n\n// Get team ID from the recording's teams array\nconst teamId = (latest.teams && latest.teams.length > 0) ? latest.teams[0].id : '';\n\nreturn [{\n  json: {\n    hasRecording: true,\n    recordingUrl: latest.url,\n    recordingTitle: latest.title,\n    recordingDate: latest.start_datetime,\n    recordingId: latest.id,\n    teamId: teamId,\n    hoursSinceRecording: Math.round(hoursSinceRecording),\n    isRecent: hoursSinceRecording < 24\n  }\n}];"
       },
       "id": "extract-latest",
       "name": "Get Latest Recording",
@@ -104,6 +104,36 @@
     },
     {
       "parameters": {
+        "method": "PUT",
+        "url": "=https://api.grain.com/_/public-api/v2/recordings/{{ $json.recordingId }}/teams/{{ $json.teamId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Public-Api-Version",
+              "value": "2025-10-31"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "share-to-team",
+      "name": "Share to Team",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, -100],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Grain API Token"
+        }
+      },
+      "notes": "Shares the recording with the Archive team so the link works for everyone"
+    },
+    {
+      "parameters": {
         "resource": "message",
         "operation": "post",
         "channel": {
@@ -111,13 +141,13 @@
           "mode": "id",
           "value": "REPLACE_WITH_CHANNEL_ID"
         },
-        "text": "=<!channel> Hi all — Here's the All Hands Recording, for those who weren't able to join!\n\n{{ $json.recordingUrl }}"
+        "text": "=<!channel> Hi all — Here's the All Hands Recording, for those who weren't able to join!\n\n{{ $('Get Latest Recording').item.json.recordingUrl }}"
       },
       "id": "post-to-slack",
       "name": "Post to Slack",
       "type": "n8n-nodes-base.slack",
       "typeVersion": 2.2,
-      "position": [880, -100],
+      "position": [1100, -100],
       "credentials": {
         "slackApi": {
           "id": "REPLACE_WITH_SLACK_CREDENTIAL_ID",
@@ -131,7 +161,7 @@
       "name": "No Recent Recording",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
-      "position": [880, 100],
+      "position": [1100, 100],
       "notes": "No recording found or recording is older than 24 hours"
     }
   ],
@@ -173,7 +203,7 @@
       "main": [
         [
           {
-            "node": "Post to Slack",
+            "node": "Share to Team",
             "type": "main",
             "index": 0
           }
@@ -181,6 +211,17 @@
         [
           {
             "node": "No Recent Recording",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Share to Team": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
             "type": "main",
             "index": 0
           }

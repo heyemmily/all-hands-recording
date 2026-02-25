@@ -3,7 +3,7 @@
 Every Monday after your All Hands meeting, n8n automatically fetches the recording from Grain and posts it to Slack with your custom message.
 
 ```
-Monday 12:30pm ET → n8n calls Grain API → Gets latest "All Hands" recording → Posts to Slack
+Monday 12:30pm ET → n8n calls Grain API → Gets latest "All Hands" recording → Shares to team → Posts to Slack
 ```
 
 Fully automated. No manual steps after setup.
@@ -35,6 +35,10 @@ Fully automated. No manual steps after setup.
 1. Click on it
 2. Under Credential, select your **Grain API Token**
 
+**"Share to Team" node:**
+1. Click on it
+2. Under Credential, select your **Grain API Token** (same one)
+
 **"Post to Slack" node:**
 1. Click on it
 2. Select your **Slack credential**
@@ -60,6 +64,7 @@ Toggle the workflow to **Active**. It will now run automatically every Monday at
 | Get Recordings from Grain | Calls Grain API, filters for "All Hands" in title |
 | Get Latest Recording | Finds the most recent recording from the last 24 hours |
 | Has Recent Recording? | Only continues if there's a recording from today |
+| Share to Team | Shares the recording with the Archive team so the link works for everyone |
 | Post to Slack | Posts your custom message with the recording URL |
 
 ---
@@ -123,3 +128,13 @@ Body:
 ```
 
 Response includes `recordings` array with `url` field for each recording.
+
+**Grain Share Recording to Team:**
+```
+PUT https://api.grain.com/_/public-api/v2/recordings/:recording_id/teams/:team_id
+Headers:
+  Authorization: Bearer <your_token>
+  Public-Api-Version: 2025-10-31
+```
+
+Shares the recording with the specified team. Returns `{"success": true}`.
